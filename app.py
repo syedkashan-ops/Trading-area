@@ -1,18 +1,14 @@
 import io
 import math
-import os
-import tempfile
-import folium
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import pandas as pd
 import streamlit as st
+import folium
+from streamlit_folium import st_folium
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as OpenPyxlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from streamlit_folium import st_folium
-from webdriver_manager.chrome import ChromeDriverManager
 
 st.set_page_config(
     layout="wide",
@@ -129,7 +125,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# --- 3. MAP RENDERING ENGINE ---
+# --- 3. MAP RENDERING ENGINE (FOLIUM) ---
 proposed = [
     e for e in st.session_state.elements if e["type"] == "Proposed Station"
 ]
@@ -140,7 +136,6 @@ m = folium.Map(
     location=[center_lat, center_lon], zoom_start=12, tiles="CartoDB dark_matter"
 )
 
-# Radius Boundaries
 folium.Circle(
     radius=10000,
     location=[center_lat, center_lon],
@@ -159,7 +154,6 @@ folium.Circle(
     popup="5 km Primary Zone",
 ).add_to(m)
 
-# Nodes & Distance Connectors
 for el in st.session_state.elements:
     if "Station" in el["type"]:
         is_p = el["type"] == "Proposed Station"
@@ -202,39 +196,108 @@ for el in st.session_state.elements:
         ).add_to(m)
 
 
-# --- 4. EXPORT ENGINE (SELENIUM + OPENPYXL) ---
-def capture_map_image(folium_map) -> str:
-    temp_dir = tempfile.mkdtemp()
-    html_path = os.path.join(temp_dir, "map.html")
-    png_path = os.path.join(temp_dir, "map.png")
-    folium_map.save(html_path)
+# --- 4. NATIVE PYTHON MAP RENDERER FOR EXCEL (NO BROWSER NEEDED) ---
+def generate_static_map_image(elements_data) -> io.BytesIO:
+    fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
+    fig.patch.set_facecolor("#0F172A")
+    ax.set_facecolor("#0F172A")
 
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1200,900")
+    proposed_list = [
+        e for e in elements_data if e["type"] == "Proposed Station"
+    ]
+    p_lat = proposed_list[0]["lat"] if proposed_list else 24.8607
+    p_lon = proposed_list[0]["lon"] if proposed_list else 67.0011
 
-    # Adapt driver location for Streamlit Cloud Linux environment
-    try:
-        service = Service("/usr/bin/chromedriver")
-        driver = webdriver.Chrome(service=service, options=options)
-    except Exception:
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()), options=options
-        )
+    # Draw 10 km and 5 km radius circles
+    c10 = plt.Circle(
+        (p_lon, p_lat),
+        0.09,
+        color="#00D2FF",
+        fill=True,
+        alpha=0.1,
+        linestyle="--",
+    )
+    c5 = plt.Circle(
+        (p_lon, p_lat),
+        0.045,
+        color="#FFD166",
+        fill=True,
+        alpha=0.15,
+        linestyle=":",
+    )
+    ax.add_patch(c10)
+    ax.add_patch(c5)
 
-    driver.get(f"file://{os.path.abspath(html_path)}")
-    import time
+    for el in elements_data:
+        e_lat, e_lon = el["lat"], el["lon"]
+        if "Station" in el["type"]:
+            is_p = el["type"] == "Proposed Station"
+            color = "#00FF66" if is_p else "#00D2FF"
+            ax.scatter(e_lon, e_lat, color=color, s=150, zorder=5)
 
-    time.sleep(2.5)
-    driver.save_screenshot(png_path)
-    driver.quit()
+            label = f"{el['name']}\n({el['omc']})\nPMG:{el['pmg']} HSD:{el['hsd']} HOBC:{el['hobc']}"
+            ax.text(
+                e_lon,
+                e_lat + 0.005,
+                label,
+                color="white",
+                fontsize=7,
+                ha="center",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="#1E293B",
+                    edgecolor=color,
+                ),
+                zorder=6,
+            )
 
-    return png_path
+            if not is_p and proposed_list:
+                ax.plot(
+                    [p_lon, e_lon],
+                    [p_lat, e_lat],
+                    color="#00FF66",
+                    linestyle="--",
+                    linewidth=1.5,
+                )
+                dist = calculate_distance(p_lat, p_lon, e_lat, e_lon)
+                mid_lon, mid_lat = (p_lon + e_lon) / 2, (p_lat + e_lat) / 2
+                ax.text(
+                    mid_lon,
+                    mid_lat,
+                    f"{dist:.1f} km",
+                    color="#00FF66",
+                    fontsize=6,
+                    fontweight="bold",
+                    bbox=dict(boxstyle="square,pad=0.1", facecolor="#0F172A"),
+                )
+        else:
+            ax.scatter(e_lon, e_lat, color="#FF4D4D", s=100, zorder=5)
+            ax.text(
+                e_lon,
+                e_lat + 0.004,
+                el["name"],
+                color="#FF4D4D",
+                fontsize=7,
+                ha="center",
+            )
+
+    ax.set_title(
+        "PETROL STATION TRADE AREA MAP (10 KM RADIUS)",
+        color="white",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax.axis("off")
+    plt.tight_layout()
+
+    img_buf = io.BytesIO()
+    plt.savefig(img_buf, format="png", dpi=150, facecolor=fig.get_facecolor())
+    plt.close()
+    img_buf.seek(0)
+    return img_buf
 
 
-def create_excel_report(elements_data, map_image_path) -> io.BytesIO:
+def create_excel_report(elements_data) -> io.BytesIO:
     wb = Workbook()
 
     # Map Tab
@@ -251,8 +314,9 @@ def create_excel_report(elements_data, map_image_path) -> io.BytesIO:
     )
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    img = OpenPyxlImage(map_image_path)
-    img.width = 800
+    map_img_buf = generate_static_map_image(elements_data)
+    img = OpenPyxlImage(map_img_buf)
+    img.width = 750
     img.height = 600
     ws_map.add_image(img, "A4")
 
@@ -333,11 +397,8 @@ with col2:
     st.subheader("📥 Report Generation")
 
     if st.button("Generate Excel Report"):
-        with st.spinner("Capturing map layout and building Excel sheet..."):
-            map_img = capture_map_image(m)
-            excel_bytes = create_excel_report(
-                st.session_state.elements, map_img
-            )
+        with st.spinner("Building Excel sheet and rendering report map..."):
+            excel_bytes = create_excel_report(st.session_state.elements)
 
             st.download_button(
                 label="💾 Download Excel (.xlsx)",
