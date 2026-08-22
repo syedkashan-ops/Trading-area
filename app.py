@@ -1,64 +1,54 @@
 import io
-import pandas as pd
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt
 import streamlit as st
 
-# Page setup
+# Page Configuration
 st.set_page_config(
-    page_title="Outlet Audit Report Generator", page_icon="📸", layout="wide"
+    page_title="Outlet Audit Generator", page_icon="📸", layout="wide"
 )
 
-# Custom CSS for polished interface
+# Application Styling
 st.markdown(
     """
     <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #182B49;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 1rem;
-        color: #555555;
-        margin-bottom: 2rem;
-    }
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
-    }
+    .main-header { font-size: 2.2rem; font-weight: 700; color: #182B49; margin-bottom: 0.2rem; }
+    .sub-header { font-size: 1rem; color: #555555; margin-bottom: 1.5rem; }
+    .stButton>button { border-radius: 8px; font-weight: 600; }
+    .pair-badge { background-color: #E8F0FE; color: #1E90FF; padding: 4px 12px; border-radius: 12px; font-weight: 600; }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    '<div class="main-header">📸 Outlet Before/After Presentation Generator</div>',
+    '<div class="main-header">📸 Outlet Before & After Presentation Builder</div>',
     unsafe_allow_html=True,
 )
 st.markdown(
-    '<div class="sub-header">Upload outlet data, add comparison image pairs, and export a polished PowerPoint report.</div>',
+    '<div class="sub-header">Fill in the outlet details, sequentially upload image pairs, and construct a presentation.</div>',
     unsafe_allow_html=True,
 )
 
-# Session state initialization
-if "pairs" not in st.session_state:
-    st.session_state.pairs = []
+# Session State Initialization
 if "outlet_name" not in st.session_state:
     st.session_state.outlet_name = ""
 if "outlet_code" not in st.session_state:
     st.session_state.outlet_code = ""
+if "pairs" not in st.session_state:
+    st.session_state.pairs = []
+if "details_locked" not in st.session_state:
+    st.session_state.details_locked = False
 
 
+# PowerPoint Generation Function
 def generate_pptx(outlet_name, outlet_code, pairs):
     prs = Presentation()
-    prs.slide_width = Inches(13.333)  # 16:9 widescreen
+    prs.slide_width = Inches(13.333)  # 16:9 Widescreen layout
     prs.slide_height = Inches(7.5)
     blank_layout = prs.slide_layouts[6]
 
-    # Theme colors
     dark_blue = RGBColor(24, 43, 73)
     white = RGBColor(255, 255, 255)
     brand_blue = RGBColor(30, 144, 255)
@@ -93,7 +83,7 @@ def generate_pptx(outlet_name, outlet_code, pairs):
     p3.font.size = Pt(20)
     p3.font.color.rgb = RGBColor(180, 190, 205)
 
-    # --- Photo Comparison Slides ---
+    # --- Comparison Slides ---
     for idx, pair in enumerate(pairs, 1):
         slide = prs.slides.add_slide(blank_layout)
 
@@ -118,12 +108,12 @@ def generate_pptx(outlet_name, outlet_code, pairs):
         p_sub.font.size = Pt(13)
         p_sub.font.color.rgb = brand_blue
 
-        card_w, card_h = Inches(5.6), Inches(5.5)
+        card_w = Inches(5.6)
         top_pos = Inches(1.4)
         before_left = Inches(0.8)
         after_left = Inches(6.9)
 
-        # Labels
+        # Before & After Header Badges
         b_box = slide.shapes.add_textbox(
             before_left, top_pos, card_w, Inches(0.4)
         )
@@ -142,7 +132,7 @@ def generate_pptx(outlet_name, outlet_code, pairs):
         p.font.size = Pt(16)
         p.font.color.rgb = RGBColor(40, 167, 69)
 
-        # Insert images
+        # Embed Images
         if pair["before"]:
             slide.shapes.add_picture(
                 io.BytesIO(pair["before"].getvalue()),
@@ -165,98 +155,111 @@ def generate_pptx(outlet_name, outlet_code, pairs):
     return ppt_bytes
 
 
-# --- STEP 1: Excel Data Entry ---
-st.markdown("### Step 1: Select Outlet Details")
-uploaded_excel = st.file_uploader("Upload Excel File", type=["xlsx", "xls"])
+# --- FORM SECTION 1: Outlet Information ---
+if not st.session_state.details_locked:
+    st.markdown("### Step 1: Outlet Details")
+    with st.form(key="outlet_info_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            name_input = st.text_input(
+                "Outlet Name", placeholder="e.g. Metro Store Downtown"
+            )
+        with col2:
+            code_input = st.text_input(
+                "Outlet Code", placeholder="e.g. OUT-8890"
+            )
 
-if uploaded_excel:
-    df = pd.read_excel(uploaded_excel)
-    st.dataframe(df.head(3), use_container_width=True)
+        submit_details = st.form_submit_button("Proceed to Upload Photos ➔")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        name_col = st.selectbox("Select Name Column", options=df.columns)
-    with col2:
-        code_col = st.selectbox("Select Code Column", options=df.columns)
+        if submit_details:
+            if name_input.strip() and code_input.strip():
+                st.session_state.outlet_name = name_input.strip()
+                st.session_state.outlet_code = code_input.strip()
+                st.session_state.details_locked = True
+                st.rerun()
+            else:
+                st.error("Please provide both Outlet Name and Outlet Code.")
 
-    outlet_row = st.selectbox(
-        "Select Outlet Row",
-        options=range(len(df)),
-        format_func=lambda x: f"{df.iloc[x][name_col]} ({df.iloc[x][code_col]})",
-    )
-
-    if st.button("Confirm Outlet Selection"):
-        st.session_state.outlet_name = str(df.iloc[outlet_row][name_col])
-        st.session_state.outlet_code = str(df.iloc[outlet_row][code_col])
-        st.success(
-            f"Active Outlet: **{st.session_state.outlet_name}** ({st.session_state.outlet_code})"
-        )
-
-st.divider()
-
-# --- STEP 2: Sequential Image Upload ---
-if st.session_state.outlet_name:
+# --- FORM SECTION 2: Iterative Photo Uploads ---
+else:
+    # Top info strip with option to reset
     st.markdown(
-        f"### Step 2: Upload Photos for **{st.session_state.outlet_name}**"
+        f"**Active Outlet:** `{st.session_state.outlet_name}` | **Code:** `{st.session_state.outlet_code}`"
     )
-    st.info(f"Pairs collected: **{len(st.session_state.pairs)}**")
 
-    with st.form(key="photo_pair_form", clear_on_submit=True):
+    if st.button("🔄 Change Outlet Details"):
+        st.session_state.details_locked = False
+        st.session_state.pairs = []
+        st.rerun()
+
+    st.divider()
+
+    current_pair_num = len(st.session_state.pairs) + 1
+    st.markdown(f"### Upload Image Pair #{current_pair_num}")
+
+    with st.form(key=f"upload_form_pair_{current_pair_num}", clear_on_submit=True):
         col_a, col_b = st.columns(2)
         with col_a:
             before_file = st.file_uploader(
-                "BEFORE Photo", type=["png", "jpg", "jpeg"]
+                f"Before Photo (Pair #{current_pair_num})",
+                type=["png", "jpg", "jpeg"],
             )
         with col_b:
             after_file = st.file_uploader(
-                "AFTER Photo", type=["png", "jpg", "jpeg"]
+                f"After Photo (Pair #{current_pair_num})",
+                type=["png", "jpg", "jpeg"],
             )
 
-        submit_pair = st.form_submit_button("➕ Save Pair & Next")
+        save_and_continue = st.form_submit_button(
+            f"➕ Save Pair #{current_pair_num} & Add Next Pair"
+        )
 
-        if submit_pair:
+        if save_and_continue:
             if before_file and after_file:
                 st.session_state.pairs.append(
                     {"before": before_file, "after": after_file}
                 )
+                st.success(f"Pair #{current_pair_num} added successfully!")
                 st.rerun()
             else:
-                st.error("Please provide both BEFORE and AFTER files.")
+                st.error("Please select BOTH Before and After photos.")
 
-    # Show preview gallery of uploaded pairs
+    # Show list of added pairs
     if st.session_state.pairs:
-        st.markdown("#### Uploaded Pairs Preview")
+        st.divider()
+        st.markdown(f"### Uploaded Pairs ({len(st.session_state.pairs)})")
+
         for idx, pair in enumerate(st.session_state.pairs, 1):
-            with st.expander(f"Pair #{idx}", expanded=False):
+            with st.expander(f"📷 Pair #{idx}", expanded=(idx == len(st.session_state.pairs))):
                 p_col1, p_col2 = st.columns(2)
                 p_col1.image(
-                    pair["before"], caption="Before", use_container_width=True
+                    pair["before"],
+                    caption=f"Before #{idx}",
+                    use_container_width=True,
                 )
                 p_col2.image(
-                    pair["after"], caption="After", use_container_width=True
+                    pair["after"],
+                    caption=f"After #{idx}",
+                    use_container_width=True,
                 )
 
-    st.divider()
-
-    # --- STEP 3: PowerPoint Export ---
-    if st.session_state.pairs:
-        st.markdown("### Step 3: Generate Presentation")
-        if st.button("🚀 Build PPTX Presentation", type="primary"):
+        # --- SECTION 3: Final Presentation Download ---
+        st.divider()
+        st.markdown("### Generate Final Report")
+        if st.button("🚀 Build & Download Presentation", type="primary"):
             pptx_data = generate_pptx(
                 st.session_state.outlet_name,
                 st.session_state.outlet_code,
                 st.session_state.pairs,
             )
 
-            file_name = f"{st.session_state.outlet_name}_{st.session_state.outlet_code}_Report.pptx".replace(
+            file_filename = f"{st.session_state.outlet_name}_{st.session_state.outlet_code}_Report.pptx".replace(
                 " ", "_"
             )
 
             st.download_button(
                 label="📥 Download Presentation (.pptx)",
                 data=pptx_data,
-                file_name=file_name,
+                file_name=file_filename,
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             )
-else:
-    st.warning("Upload an Excel file and confirm an outlet above to begin.")
