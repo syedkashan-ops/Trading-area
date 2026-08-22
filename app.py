@@ -8,8 +8,11 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as OpenPyxlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from playwright.sync_api import sync_playwright
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from streamlit_folium import st_folium
+from webdriver_manager.chrome import ChromeDriverManager
 
 st.set_page_config(
     layout="wide",
@@ -199,20 +202,35 @@ for el in st.session_state.elements:
         ).add_to(m)
 
 
-# --- 4. EXPORT ENGINE (PLAYWRIGHT + OPENPYXL) ---
+# --- 4. EXPORT ENGINE (SELENIUM + OPENPYXL) ---
 def capture_map_image(folium_map) -> str:
     temp_dir = tempfile.mkdtemp()
     html_path = os.path.join(temp_dir, "map.html")
     png_path = os.path.join(temp_dir, "map.png")
     folium_map.save(html_path)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1200, "height": 900})
-        page.goto(f"file://{os.path.abspath(html_path)}")
-        page.wait_for_timeout(2500)
-        page.screenshot(path=png_path)
-        browser.close()
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1200,900")
+
+    # Adapt driver location for Streamlit Cloud Linux environment
+    try:
+        service = Service("/usr/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=options)
+    except Exception:
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()), options=options
+        )
+
+    driver.get(f"file://{os.path.abspath(html_path)}")
+    import time
+
+    time.sleep(2.5)
+    driver.save_screenshot(png_path)
+    driver.quit()
+
     return png_path
 
 
