@@ -1,413 +1,262 @@
 import io
-import math
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import pandas as pd
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.util import Inches, Pt
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
-from openpyxl import Workbook
-from openpyxl.drawing.image import Image as OpenPyxlImage
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+# Page setup
 st.set_page_config(
-    layout="wide",
-    page_title="Petrol Station Trade Area Mapper",
-    page_icon="⛽",
+    page_title="Outlet Audit Report Generator", page_icon="📸", layout="wide"
 )
 
-st.title("⛽ Petrol Station Trade Area Mapper (10 km Radius)")
-
-# --- 1. SIDEBAR: DATA ENTRY ---
-st.sidebar.header("📍 Site Entry Form")
-
-entry_type = st.sidebar.selectbox(
-    "Entry Type",
-    ["Proposed Station", "Competitor Station", "Landmark / POI"],
+# Custom CSS for polished interface
+st.markdown(
+    """
+    <style>
+    .main-header {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #182B49;
+        margin-bottom: 0.2rem;
+    }
+    .sub-header {
+        font-size: 1rem;
+        color: #555555;
+        margin-bottom: 2rem;
+    }
+    .stButton>button {
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
 )
-name = st.sidebar.text_input("Station / Landmark Name", "Site Alpha")
-lat = st.sidebar.number_input("Latitude", value=24.8607, format="%.5f")
-lon = st.sidebar.number_input("Longitude", value=67.0011, format="%.5f")
 
-# Initialize Session Data
-if "elements" not in st.session_state:
-    st.session_state.elements = [
-        {
-            "type": "Proposed Station",
-            "name": "Proposed Subject Site",
-            "omc": "SHELL",
-            "lat": 24.8607,
-            "lon": 67.0011,
-            "pmg": 180,
-            "hsd": 240,
-            "hobc": 45,
-        },
-        {
-            "type": "Competitor Station",
-            "name": "North Metro Station",
-            "omc": "TOTAL",
-            "lat": 24.8950,
-            "lon": 67.0250,
-            "pmg": 120,
-            "hsd": 150,
-            "hobc": 15,
-        },
-        {
-            "type": "Competitor Station",
-            "name": "East Highway Hub",
-            "omc": "PSO",
-            "lat": 24.8300,
-            "lon": 67.0500,
-            "pmg": 210,
-            "hsd": 300,
-            "hobc": 30,
-        },
-        {
-            "type": "Landmark / POI",
-            "name": "KFC Drive-Thru & Hospital",
-            "omc": "N/A",
-            "lat": 24.8750,
-            "lon": 67.0120,
-            "pmg": 0,
-            "hsd": 0,
-            "hobc": 0,
-        },
-    ]
+st.markdown(
+    '<div class="main-header">📸 Outlet Before/After Presentation Generator</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="sub-header">Upload outlet data, add comparison image pairs, and export a polished PowerPoint report.</div>',
+    unsafe_allow_html=True,
+)
 
-if entry_type in ["Proposed Station", "Competitor Station"]:
-    omc = st.sidebar.text_input("OMC Name (e.g., Shell, Total, PSO)", "PSO")
-    pmg = st.sidebar.number_input("PMG Sales (Kls)", min_value=0, value=100)
-    hsd = st.sidebar.number_input("HSD Sales (Kls)", min_value=0, value=150)
-    hobc = st.sidebar.number_input("HOBC Sales (Kls)", min_value=0, value=20)
+# Session state initialization
+if "pairs" not in st.session_state:
+    st.session_state.pairs = []
+if "outlet_name" not in st.session_state:
+    st.session_state.outlet_name = ""
+if "outlet_code" not in st.session_state:
+    st.session_state.outlet_code = ""
 
-    if st.sidebar.button("➕ Add Station"):
-        st.session_state.elements.append(
-            {
-                "type": entry_type,
-                "name": name,
-                "omc": omc,
-                "lat": lat,
-                "lon": lon,
-                "pmg": pmg,
-                "hsd": hsd,
-                "hobc": hobc,
-            }
+
+def generate_pptx(outlet_name, outlet_code, pairs):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)  # 16:9 widescreen
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    # Theme colors
+    dark_blue = RGBColor(24, 43, 73)
+    white = RGBColor(255, 255, 255)
+    brand_blue = RGBColor(30, 144, 255)
+
+    # --- Title Slide ---
+    slide = prs.slides.add_slide(blank_layout)
+    bg = slide.shapes.add_shape(1, 0, 0, prs.slide_width, prs.slide_height)
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = dark_blue
+    bg.line.fill.background()
+
+    tb = slide.shapes.add_textbox(
+        Inches(1), Inches(2.3), Inches(11.333), Inches(3.0)
+    )
+    tf = tb.text_frame
+    tf.word_wrap = True
+
+    p = tf.paragraphs[0]
+    p.text = "OUTLET AUDIT REPORT"
+    p.font.bold = True
+    p.font.size = Pt(22)
+    p.font.color.rgb = brand_blue
+
+    p2 = tf.add_paragraph()
+    p2.text = f"{outlet_name}"
+    p2.font.bold = True
+    p2.font.size = Pt(44)
+    p2.font.color.rgb = white
+
+    p3 = tf.add_paragraph()
+    p3.text = f"Outlet Code: {outlet_code}"
+    p3.font.size = Pt(20)
+    p3.font.color.rgb = RGBColor(180, 190, 205)
+
+    # --- Photo Comparison Slides ---
+    for idx, pair in enumerate(pairs, 1):
+        slide = prs.slides.add_slide(blank_layout)
+
+        # Header bar
+        bar = slide.shapes.add_shape(1, 0, 0, prs.slide_width, Inches(1.1))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = dark_blue
+        bar.line.fill.background()
+
+        tb = slide.shapes.add_textbox(
+            Inches(0.8), Inches(0.15), Inches(11.7), Inches(0.8)
         )
-        st.sidebar.success(f"Added {name}")
-else:
-    if st.sidebar.button("➕ Add Landmark"):
-        st.session_state.elements.append(
-            {
-                "type": entry_type,
-                "name": name,
-                "omc": "N/A",
-                "lat": lat,
-                "lon": lon,
-                "pmg": 0,
-                "hsd": 0,
-                "hobc": 0,
-            }
+        tf = tb.text_frame
+        p = tf.paragraphs[0]
+        p.text = f"{outlet_name} ({outlet_code})"
+        p.font.bold = True
+        p.font.size = Pt(20)
+        p.font.color.rgb = white
+
+        p_sub = tf.add_paragraph()
+        p_sub.text = f"Comparison Pair #{idx}"
+        p_sub.font.size = Pt(13)
+        p_sub.font.color.rgb = brand_blue
+
+        card_w, card_h = Inches(5.6), Inches(5.5)
+        top_pos = Inches(1.4)
+        before_left = Inches(0.8)
+        after_left = Inches(6.9)
+
+        # Labels
+        b_box = slide.shapes.add_textbox(
+            before_left, top_pos, card_w, Inches(0.4)
         )
-        st.sidebar.success(f"Added Landmark {name}")
+        p = b_box.text_frame.paragraphs[0]
+        p.text = "BEFORE"
+        p.font.bold = True
+        p.font.size = Pt(16)
+        p.font.color.rgb = RGBColor(220, 53, 69)
 
+        a_box = slide.shapes.add_textbox(
+            after_left, top_pos, card_w, Inches(0.4)
+        )
+        p = a_box.text_frame.paragraphs[0]
+        p.text = "AFTER"
+        p.font.bold = True
+        p.font.size = Pt(16)
+        p.font.color.rgb = RGBColor(40, 167, 69)
 
-# --- 2. MATH HELPERS ---
-def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371.0  # Earth radius in km
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-# --- 3. MAP RENDERING ENGINE (FOLIUM) ---
-proposed = [
-    e for e in st.session_state.elements if e["type"] == "Proposed Station"
-]
-center_lat = proposed[0]["lat"] if proposed else 24.8607
-center_lon = proposed[0]["lon"] if proposed else 67.0011
-
-m = folium.Map(
-    location=[center_lat, center_lon], zoom_start=12, tiles="CartoDB dark_matter"
-)
-
-folium.Circle(
-    radius=10000,
-    location=[center_lat, center_lon],
-    color="#00D2FF",
-    fill=True,
-    fill_opacity=0.05,
-    popup="10 km Trade Boundary",
-).add_to(m)
-
-folium.Circle(
-    radius=5000,
-    location=[center_lat, center_lon],
-    color="#FFD166",
-    fill=True,
-    fill_opacity=0.08,
-    popup="5 km Primary Zone",
-).add_to(m)
-
-for el in st.session_state.elements:
-    if "Station" in el["type"]:
-        is_p = el["type"] == "Proposed Station"
-        border_color = "#00FF66" if is_p else "#00D2FF"
-        bg_color = "#0F172A" if is_p else "#1E293B"
-
-        html_card = f"""
-        <div style="font-family: Arial; width: 170px; padding: 6px; border:2px solid {border_color}; background-color:{bg_color}; color:white; border-radius:6px; box-shadow: 2px 2px 6px rgba(0,0,0,0.5);">
-            <div style="font-weight:bold; font-size:11px; text-align:center;">{el['name']}</div>
-            <div style="background-color:#334155; text-align:center; font-size:9px; margin:3px 0; padding:2px; font-weight:bold; color:#FFD166;">★ {el['omc']} LOGO ★</div>
-            <div style="font-size:9.5px; text-align:center; line-height:1.3;">
-                PMG: <b>{el['pmg']} Kl</b> | HSD: <b>{el['hsd']} Kl</b><br>
-                HOBC: <b>{el['hobc']} Kl</b>
-            </div>
-        </div>
-        """
-        folium.Marker(
-            location=[el["lat"], el["lon"]], icon=folium.DivIcon(html=html_card)
-        ).add_to(m)
-
-        if not is_p and proposed:
-            dist = calculate_distance(
-                proposed[0]["lat"], proposed[0]["lon"], el["lat"], el["lon"]
-            )
-            folium.PolyLine(
-                locations=[
-                    [proposed[0]["lat"], proposed[0]["lon"]],
-                    [el["lat"], el["lon"]],
-                ],
-                color="#00FF66",
-                weight=2,
-                opacity=0.8,
-                tooltip=f"Distance: {dist:.2f} km",
-            ).add_to(m)
-    else:
-        folium.Marker(
-            location=[el["lat"], el["lon"]],
-            popup=el["name"],
-            icon=folium.Icon(color="red", icon="info-sign"),
-        ).add_to(m)
-
-
-# --- 4. NATIVE PYTHON MAP RENDERER FOR EXCEL (NO BROWSER NEEDED) ---
-def generate_static_map_image(elements_data) -> io.BytesIO:
-    fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
-    fig.patch.set_facecolor("#0F172A")
-    ax.set_facecolor("#0F172A")
-
-    proposed_list = [
-        e for e in elements_data if e["type"] == "Proposed Station"
-    ]
-    p_lat = proposed_list[0]["lat"] if proposed_list else 24.8607
-    p_lon = proposed_list[0]["lon"] if proposed_list else 67.0011
-
-    # Draw 10 km and 5 km radius circles
-    c10 = plt.Circle(
-        (p_lon, p_lat),
-        0.09,
-        color="#00D2FF",
-        fill=True,
-        alpha=0.1,
-        linestyle="--",
-    )
-    c5 = plt.Circle(
-        (p_lon, p_lat),
-        0.045,
-        color="#FFD166",
-        fill=True,
-        alpha=0.15,
-        linestyle=":",
-    )
-    ax.add_patch(c10)
-    ax.add_patch(c5)
-
-    for el in elements_data:
-        e_lat, e_lon = el["lat"], el["lon"]
-        if "Station" in el["type"]:
-            is_p = el["type"] == "Proposed Station"
-            color = "#00FF66" if is_p else "#00D2FF"
-            ax.scatter(e_lon, e_lat, color=color, s=150, zorder=5)
-
-            label = f"{el['name']}\n({el['omc']})\nPMG:{el['pmg']} HSD:{el['hsd']} HOBC:{el['hobc']}"
-            ax.text(
-                e_lon,
-                e_lat + 0.005,
-                label,
-                color="white",
-                fontsize=7,
-                ha="center",
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="#1E293B",
-                    edgecolor=color,
-                ),
-                zorder=6,
+        # Insert images
+        if pair["before"]:
+            slide.shapes.add_picture(
+                io.BytesIO(pair["before"].getvalue()),
+                before_left,
+                top_pos + Inches(0.4),
+                width=card_w,
             )
 
-            if not is_p and proposed_list:
-                ax.plot(
-                    [p_lon, e_lon],
-                    [p_lat, e_lat],
-                    color="#00FF66",
-                    linestyle="--",
-                    linewidth=1.5,
+        if pair["after"]:
+            slide.shapes.add_picture(
+                io.BytesIO(pair["after"].getvalue()),
+                after_left,
+                top_pos + Inches(0.4),
+                width=card_w,
+            )
+
+    ppt_bytes = io.BytesIO()
+    prs.save(ppt_bytes)
+    ppt_bytes.seek(0)
+    return ppt_bytes
+
+
+# --- STEP 1: Excel Data Entry ---
+st.markdown("### Step 1: Select Outlet Details")
+uploaded_excel = st.file_uploader("Upload Excel File", type=["xlsx", "xls"])
+
+if uploaded_excel:
+    df = pd.read_excel(uploaded_excel)
+    st.dataframe(df.head(3), use_container_width=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        name_col = st.selectbox("Select Name Column", options=df.columns)
+    with col2:
+        code_col = st.selectbox("Select Code Column", options=df.columns)
+
+    outlet_row = st.selectbox(
+        "Select Outlet Row",
+        options=range(len(df)),
+        format_func=lambda x: f"{df.iloc[x][name_col]} ({df.iloc[x][code_col]})",
+    )
+
+    if st.button("Confirm Outlet Selection"):
+        st.session_state.outlet_name = str(df.iloc[outlet_row][name_col])
+        st.session_state.outlet_code = str(df.iloc[outlet_row][code_col])
+        st.success(
+            f"Active Outlet: **{st.session_state.outlet_name}** ({st.session_state.outlet_code})"
+        )
+
+st.divider()
+
+# --- STEP 2: Sequential Image Upload ---
+if st.session_state.outlet_name:
+    st.markdown(
+        f"### Step 2: Upload Photos for **{st.session_state.outlet_name}**"
+    )
+    st.info(f"Pairs collected: **{len(st.session_state.pairs)}**")
+
+    with st.form(key="photo_pair_form", clear_on_submit=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            before_file = st.file_uploader(
+                "BEFORE Photo", type=["png", "jpg", "jpeg"]
+            )
+        with col_b:
+            after_file = st.file_uploader(
+                "AFTER Photo", type=["png", "jpg", "jpeg"]
+            )
+
+        submit_pair = st.form_submit_button("➕ Save Pair & Next")
+
+        if submit_pair:
+            if before_file and after_file:
+                st.session_state.pairs.append(
+                    {"before": before_file, "after": after_file}
                 )
-                dist = calculate_distance(p_lat, p_lon, e_lat, e_lon)
-                mid_lon, mid_lat = (p_lon + e_lon) / 2, (p_lat + e_lat) / 2
-                ax.text(
-                    mid_lon,
-                    mid_lat,
-                    f"{dist:.1f} km",
-                    color="#00FF66",
-                    fontsize=6,
-                    fontweight="bold",
-                    bbox=dict(boxstyle="square,pad=0.1", facecolor="#0F172A"),
+                st.rerun()
+            else:
+                st.error("Please provide both BEFORE and AFTER files.")
+
+    # Show preview gallery of uploaded pairs
+    if st.session_state.pairs:
+        st.markdown("#### Uploaded Pairs Preview")
+        for idx, pair in enumerate(st.session_state.pairs, 1):
+            with st.expander(f"Pair #{idx}", expanded=False):
+                p_col1, p_col2 = st.columns(2)
+                p_col1.image(
+                    pair["before"], caption="Before", use_container_width=True
                 )
-        else:
-            ax.scatter(e_lon, e_lat, color="#FF4D4D", s=100, zorder=5)
-            ax.text(
-                e_lon,
-                e_lat + 0.004,
-                el["name"],
-                color="#FF4D4D",
-                fontsize=7,
-                ha="center",
+                p_col2.image(
+                    pair["after"], caption="After", use_container_width=True
+                )
+
+    st.divider()
+
+    # --- STEP 3: PowerPoint Export ---
+    if st.session_state.pairs:
+        st.markdown("### Step 3: Generate Presentation")
+        if st.button("🚀 Build PPTX Presentation", type="primary"):
+            pptx_data = generate_pptx(
+                st.session_state.outlet_name,
+                st.session_state.outlet_code,
+                st.session_state.pairs,
             )
 
-    ax.set_title(
-        "PETROL STATION TRADE AREA MAP (10 KM RADIUS)",
-        color="white",
-        fontsize=12,
-        fontweight="bold",
-    )
-    ax.axis("off")
-    plt.tight_layout()
-
-    img_buf = io.BytesIO()
-    plt.savefig(img_buf, format="png", dpi=150, facecolor=fig.get_facecolor())
-    plt.close()
-    img_buf.seek(0)
-    return img_buf
-
-
-def create_excel_report(elements_data) -> io.BytesIO:
-    wb = Workbook()
-
-    # Map Tab
-    ws_map = wb.active
-    ws_map.title = "Trade Area Map"
-    ws_map.views.sheetView[0].showGridLines = True
-
-    ws_map.merge_cells("A1:G2")
-    title_cell = ws_map["A1"]
-    title_cell.value = "PETROL STATION TRADE AREA REPORT (10 KM RADIUS)"
-    title_cell.font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
-    title_cell.fill = PatternFill(
-        start_color="1E293B", end_color="1E293B", fill_type="solid"
-    )
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    map_img_buf = generate_static_map_image(elements_data)
-    img = OpenPyxlImage(map_img_buf)
-    img.width = 750
-    img.height = 600
-    ws_map.add_image(img, "A4")
-
-    # Data Tab
-    ws_data = wb.create_sheet(title="Station Data")
-    ws_data.views.sheetView[0].showGridLines = True
-
-    headers = [
-        "Type",
-        "Station / Landmark Name",
-        "OMC Brand",
-        "PMG (Kls)",
-        "HSD (Kls)",
-        "HOBC (Kls)",
-        "Total Sales (Kls)",
-    ]
-    ws_data.append(headers)
-
-    header_fill = PatternFill(
-        start_color="0F172A", end_color="0F172A", fill_type="solid"
-    )
-    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    thin_border = Border(
-        left=Side(style="thin", color="CCCCCC"),
-        right=Side(style="thin", color="CCCCCC"),
-        top=Side(style="thin", color="CCCCCC"),
-        bottom=Side(style="thin", color="CCCCCC"),
-    )
-
-    for col_num, header in enumerate(headers, 1):
-        cell = ws_data.cell(row=1, column=col_num)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for row_idx, el in enumerate(elements_data, start=2):
-        total_sales = (
-            el.get("pmg", 0) + el.get("hsd", 0) + el.get("hobc", 0)
-            if "Station" in el["type"]
-            else 0
-        )
-        ws_data.append(
-            [
-                el["type"],
-                el["name"],
-                el.get("omc", "N/A"),
-                el.get("pmg", 0) if "Station" in el["type"] else "-",
-                el.get("hsd", 0) if "Station" in el["type"] else "-",
-                el.get("hobc", 0) if "Station" in el["type"] else "-",
-                total_sales if "Station" in el["type"] else "-",
-            ]
-        )
-
-        for col_num in range(1, len(headers) + 1):
-            c = ws_data.cell(row=row_idx, column=col_num)
-            c.border = thin_border
-
-    excel_buffer = io.BytesIO()
-    wb.save(excel_buffer)
-    excel_buffer.seek(0)
-    return excel_buffer
-
-
-# --- 5. MAIN DISPLAY & EXPORT INTERFACE ---
-col1, col2 = st.columns([3, 1])
-
-with col1:
-    st_folium(m, width=900, height=650)
-
-with col2:
-    st.subheader("📊 Station Inventory")
-    df = pd.DataFrame(st.session_state.elements)
-    st.dataframe(
-        df[["name", "type", "omc", "pmg", "hsd", "hobc"]], hide_index=True
-    )
-
-    st.markdown("---")
-    st.subheader("📥 Report Generation")
-
-    if st.button("Generate Excel Report"):
-        with st.spinner("Building Excel sheet and rendering report map..."):
-            excel_bytes = create_excel_report(st.session_state.elements)
+            file_name = f"{st.session_state.outlet_name}_{st.session_state.outlet_code}_Report.pptx".replace(
+                " ", "_"
+            )
 
             st.download_button(
-                label="💾 Download Excel (.xlsx)",
-                data=excel_bytes,
-                file_name="Petrol_Station_Trade_Area_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                label="📥 Download Presentation (.pptx)",
+                data=pptx_data,
+                file_name=file_name,
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             )
-            st.success("Report ready!")
-
-    if st.button("Clear All Data"):
-        st.session_state.elements = []
-        st.rerun()
+else:
+    st.warning("Upload an Excel file and confirm an outlet above to begin.")
